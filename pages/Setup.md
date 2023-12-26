@@ -1,4 +1,4 @@
-## how to set up forgerock
+## how to set up keycloak
 
 first go to the [keycloak](https://www.keycloak.org/downloads) site to donwload the required packages. Once you finished the download you transfer the file to the environment you want to run it on. 
 
