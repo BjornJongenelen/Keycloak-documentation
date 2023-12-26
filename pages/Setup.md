@@ -12,5 +12,11 @@ you can do it with the following command:
  keytool -genkeypair -storepass password -storepass passworde -storetype PKCS12 -keyalg RSA -keysize 2048 -dname "CN=server" -alias server -ext "SAN:c=DNS:localhost,IP:127.0. 
  ```
 
-or you can use: CXA
+or you can use: [XCA](https://hohnstaedt.de/xca)
+This application is intended for creating and managing X.509 certificates, certificate requests, RSA, DSA and EC private keys, Smartcards and CRLs.
+Everything that is needed for a CA is implemented.
+All CAs can sign sub-CAs recursively. These certificate chains are shown clearly.
+For an easy company-wide use there are customiseable templates that can be used for certificate or request generation.
+
+
 
