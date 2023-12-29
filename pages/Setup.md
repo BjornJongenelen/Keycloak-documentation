@@ -75,9 +75,9 @@ host    replication     all             ::1/128                 ident
 EOF
 ``` 
 
-Ensure that your network range is included in the “Remote Connections” settings. Remember this configuration 
+Ensure that your network range is included in the `Remote Connections` settings. Remember this configuration 
 file as you may need to reconfigure it depending on your network setup (routing vs NATing
-Finally, we will start PostgreSQL and ensure it will automatically start when we boot our system.We can verify whether PostgreSQL is listening on the *:5432 port using the “show sockets” command: 
+Finally, we will start PostgreSQL and ensure it will automatically start when we boot our system.We can verify whether PostgreSQL is listening on the *:5432 port using the `show sockets` command: 
 
 ```shell
 systemctl enable postgresql --now
@@ -124,7 +124,7 @@ Which again should give the following output:
 (4 rows)
 ```
 
-If you do not want table layout, we can use expanded layout in “psql” with: 
+If you do not want table layout, we can use expanded layout in `psql` with: 
 ```shell 
 \x 
 SELECT schema_name FROM information_schema.schemata; 
@@ -195,6 +195,8 @@ After installing and starting keycloak you should be able to navigate to the mac
 
 
 
+## Certificates
+
 ## generate self signed certificate to enbale https
 
 you can do it with the following command: 
@@ -202,17 +204,15 @@ you can do it with the following command:
  keytool -genkeypair -storepass password -storepass passworde -storetype PKCS12 -keyalg RSA -keysize 2048 -dname "CN=server" -alias server -ext "SAN:c=DNS:localhost,IP:127.0. 
  ```
 
-Or you can use: [XCA](https://hohnstaedt.de/xca)
+Or you can use: [XCA](https://hohnstaedt.de/xca) ( wich we'll use in this case)
 This application is intended for creating and managing X.509 certificates, certificate requests, RSA, DSA and EC private keys, Smartcards and CRLs.
 Everything that is needed for a CA is implemented.
 All CAs can sign sub-CAs recursively. These certificate chains are shown clearly.
 For an easy company-wide use there are customiseable templates that can be used for certificate or request generation.
 
-
-## Certificates
 ### Root CA
 Another important part of a network-facing service is the engineer’s capability to understand and configure 
-certificates. In this case we will set up a “server certificate” which is used to authenticate our Keycloak network 
+certificates. In this case we will set up a `server certificate` which is used to authenticate our Keycloak network 
 service and encrypt all traffic in transit. 
 The  authentication portion is  based on  the already-established trust in your system’s keystore (or Mozilla 
 Firefox’ keystores in case you’re using that browser). Where the certificate of the server is signed by a party 
@@ -223,4 +223,193 @@ session keys to encrypt further communication. For an in-depth explanation how t
 an online article, e.g.: Cloudflare. 
 For now, we will generate a certificate authority using XCA. Download and install the program. 
 
+- Open the software and create a new certificate
+- In the tab `Source` leave everything default and ensure that  `default CA` is selected as the template, click 
+on `Apply  all`, this will set up some default CA configuration for the CA Certificate.
 
+- In the subject tab you can enter your preferd values 
+- Click on `Generate a new key`, leave the settings default to RSA 2048 and click on `Create`, you should have something like this:
+
+
+![cert img](../images/cert.png)
+
+- The `Key usage` tab should only have the following options selected: 
+  - X509v3 Key Usage 
+  - Certificate Sign 
+  - CRL Sign
+
+- The `Netscape` tab may require modification, it should have the following `Cert Types` selected: 
+
+  - SSL CA 
+  - S/MIME CA 
+  - Object Signing CA
+
+- The `Advanced` tab should look like: 
+
+![cert advanced](../images/cert%20advanced.png)
+
+!> However, and this is important to remember, since we are creating a root signing certificate which we will later also will import in our trust store and therefore will have ultimate trust 
+
+We want to limit the server and/or client certificates this CA can sign, more specifically, we will limit it s signing 
+capabilities to: 
+  - Our IAMLAB domains, in my case  `*.keycloak.amdev`
+The reason is simple: in case this CA gets hijacked and given the comparatively loose security restrictions of 
+a laptop versus a HSM, it will be able to sign any certificate  and therefore compromise everything. We can 
+easily avoid this by  scoping the CA  heavily to  our own domains. Although the attack  is  not common, and 
+probably highly advanced in nature, it occurred several times.
+
+To apply this configuration, click on the `Edit` button in the  `Advanced` tab and enter the following value:
+
+```
+nameConstraints = permitted;DNS:iamlab.local,permitted;DNS:.iamlab.local 
+```
+
+Great, click on `OK` to finalize the certificate. 
+The Root CA is now generated and can be used to sign other certificates, which we will cover next
+
+### server certificate 
+Now we will generate a server certificate, signed by our Root CA. 
+- In XCA, select the Root CA, and click on `New Certificate`
+
+In the wizard, it should show that `MC IAMLAB  Root CA` will be used to sign this certificate, this is desired. If this is not the case, make sure that it does, otherwise restart the process. If you are unable to continue with 
+using the Root CA as signer, do not continue and let someone know. 
+On the first page, we will also select `[default] HTTPS_server` as our template, and click on `Apply all`, this 
+should select the correct x509v3 EKU and other relevant settings for performing `Server Authentication`.
+
+- In the subject tab you can enter your preferd values 
+- Click on `Generate a new key`, leave the settings default to RSA 2048 and click on `Create` 
+
+Now we’ll add a  required extension as well, namely the `X509v3 Subject  Alternative  Name(s)` or more 
+commonly called the `SANs`, click on `Edit`, and add the following entries:
+
+!> be sure to change the DN value if you enterd a different domain. 
+
+<table>
+  <tr>
+    <th>DN Key</th>
+    <th>DN Value</th>
+  </tr>
+  <tr>
+    <td>DNS</td>
+    <td>keycloak.amdev</td>
+  </tr>
+</table>
+
+- Then click on `apply`
+- The `Key usage` tab should only have the following options selected: 
+
+- X509v3 Key Usage 
+  - Digital Signature 
+  - Non Repudiation 
+  - Key Encipherment 
+-  X509v3 Extended Key Usage 
+  - TLS Web Server Authentication  (make sure to select this)
+
+- The `Netscape` tab may require modification, it should have the following `Cert Types` selected: 
+  - SSL Server 
+- You may adjust the `Netscape comment` to something like `iam2201.iamlab.local`. 
+The `Advanced` tab should look like: 
+
+And finaly click on `OK` to finelize the certificate: 
+
+## Export and Import cert
+
+-  For the export we will perform the following: 
+  - Export the Root CA Certificate 
+  - Export the Server Certificate and private key as PKCS#12 format 
+
+- Exporting the  Root  CA  Certificate is  simple , select it  in XCA and click on `Export`, this should open the XCA wizard
+
+- Ensure to select the correct path and the export format should be set to `PEM (*.crt)`, click on `OK` to perform the export. 
+- Same process for the Server Certificate, except the export format should be set to `PKCS#12 (*.p12)`
+- Click  on  `OK`  to  perform the  export,  this  will  prompt  for  a  password,  I  will choose  something  simple: `wachtwoord`. 
+
+Great, the necessary components are now exported, and we are ready to import them
+
+### The import will take place on the following components: 
+-  Root CA: 
+  - Imported into your laptop’s CA trust chain 
+  - Imported in the virtual machine’s CA trust chain 
+  - Optionally: imported into Mozilla Firefox’ CA trust chain 
+- Server Certificate: 
+  - Will be used by Keycloak 
+
+First, open  WinSCP  (or  Filezilla)  and  open  a  connection  to  your  virtual  machine  and  copy  over  the 
+`MC_IAMLAB_Root_CA.crt` and `iam2201.iamlab.local.p12` files:
+
+Now to ensure that our virutual environment trust this new CA, exectut the following commands, this should install the new Root CA in the system truststore.
+A Truststore is used to store certificates from Certified Authorities (CA) that verify the certificate presented by the server in SSL connection.
+
+```shell 
+cp /root/MC_IAMLAB_Root_CA.crt /etc/pki/ca-trust/source/anchors/; 
+update-ca-trust extract;
+```
+```shell
+cat /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem | grep -i iamlab
+```
+when running this command it should provide the following output. It also depends on what name you have given it. 
+
+```
+# MC-IAMLAB-Root-CA 
+```
+
+## Certificate installation on PC 
+Back on your workstation, install the Root CA, by double-clicking it, this should open the Microsoft Certificate Information wizard. 
+Click on `Install Certificate`. Depending on your system privileges, you can install in `Current User`, or `Local Machine`, the latter being selected when you have administrator privileges. Manually select `Place all  certificates in the following  store` and select the`Trusted Root Certification 
+Authorities` store, click `Next` and finally `Finish`. It will generate a message,warning you that you are about to ultimately trust a new Root CA
+- click on `Yes` to finalize the process. 
+
+## Certificate installation on firefox
+![firefox cert](../images/firefox%20ca.png)
+
+- When you are using Mozilla Firefox, you should also install in its separate trust store, click on `Settings > Privacy & Security` and search for the `View certificates` button
+- Click on the tab `Authorities` and import the same Root CA:
+- Since our only purpose is Web Server Authentication, we simply select `Trust this CA to identify web sites`, 
+- click `OK` to finalize the import.
+
+### Certificate installation on keycloak 
+Now that  we installed the  Root  CA  in  the  necessary trust  stores,  we can  finally make Keycloak use the 
+PKCS#12 keystore, which has 2 components: 
+• Private key 
+• Certificate 
+Navigate to your Keycloak installation directory an copy the PKCS#12 file We’ll also rename the file, since we’re working with private keys, the permissions should be modified as 
+such.
+
+```shell
+cd /opt/keycloak/conf/
+```
+```shell 
+cp /root/iam2201.iamlab.local.p12 /opt/keycloak/conf/server.p12 
+```
+```shell
+chown root:keycloak server.p12; 
+chmod 0640 server.p12;
+```
+
+And finally, we will modify the “/opt/keycloak/conf/keycloak.conf” file, namely add the following entries. Again, use the previously used password and name you gave it. 
+
+```bash 
+https-key-store-file=${kc.home.dir}conf/server.p12 
+https-key-store-password=wachtwoord
+```
+
+Now you should be able to start Keycloak again. Remember, that you enabled the certificate with the domainname, so connecting on the IP should no longer work. To fix this error we need to add the host in our local host file. 
+
+!> A hosts file is a local file that contains domain names and their matching IP addresses.
+
+Open command prompt as `administrator` on your workstation, and enter the following commands:
+
+```shell  
+notepad drivers\etc\hosts 
+```
+
+This should open `notepad.exe` with the `hosts` file, and enter the following value.
+
+```
+192.168.254.66 iam2201.iamlab.local 
+```
+!> these are the values for this guides example be sure to check your ip adress. 
+
+Save the file, and attempt to connection on the `Fully Qualified Domain Name` FQDN now and you should see the keycloak admin console and no certifiate warnings!.
+
+![keycloak admin console](../images/keycloak%20https.png)
