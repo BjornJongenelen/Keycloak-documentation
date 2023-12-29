@@ -107,6 +107,7 @@ Type "help" for help.
 postgres=#
 ```
 next, we'll check out the exisiting schema's 
+
 !> a schema is a namespace that contains named database objects such as tables, views, indexes, data types, functions, stored procedures and operators
 
 ```shell
